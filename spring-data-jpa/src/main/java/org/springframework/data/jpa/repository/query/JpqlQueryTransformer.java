@@ -19,7 +19,9 @@ import static org.springframework.data.jpa.repository.query.JpaQueryParsingToken
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.data.domain.Sort;
 import org.springframework.lang.Nullable;
@@ -31,7 +33,7 @@ import org.springframework.util.Assert;
  * @author Greg Turnquist
  * @since 3.1
  */
-class JpqlQueryTransformer extends JpqlQueryRenderer {
+class JpqlQueryTransformer extends JpqlQueryRenderer implements QueryTransformer {
 
 	// TODO: Separate input from result parameters, encapsulation...
 	private final Sort sort;
@@ -39,12 +41,14 @@ class JpqlQueryTransformer extends JpqlQueryRenderer {
 
 	private final @Nullable String countProjection;
 
-	private @Nullable String alias = null;
+	private @Nullable String primaryFromClauseAlias = null;
 
 	private List<JpaQueryParsingToken> projection = Collections.emptyList();
 	private boolean projectionProcessed;
 
 	private boolean hasConstructorExpression = false;
+
+	private Set<String> projectionAliases;
 
 	JpqlQueryTransformer() {
 		this(Sort.unsorted(), false, null);
@@ -65,11 +69,12 @@ class JpqlQueryTransformer extends JpqlQueryRenderer {
 		this.sort = sort;
 		this.countQuery = countQuery;
 		this.countProjection = countProjection;
+		this.projectionAliases = new HashSet<>();
 	}
 
 	@Nullable
 	public String getAlias() {
-		return this.alias;
+		return this.primaryFromClauseAlias;
 	}
 
 	public List<JpaQueryParsingToken> getProjection() {
@@ -78,6 +83,11 @@ class JpqlQueryTransformer extends JpqlQueryRenderer {
 
 	public boolean hasConstructorExpression() {
 		return this.hasConstructorExpression;
+	}
+
+	@Override
+	public Set<String> getProjectionAliases() {
+		return this.projectionAliases;
 	}
 
 	@Override
@@ -127,11 +137,11 @@ class JpqlQueryTransformer extends JpqlQueryRenderer {
 					}
 					tokens.add(new JpaQueryParsingToken(() -> {
 
-						if (order.getProperty().contains("(")) {
+						if (shouldAlias(order)) {
+							return primaryFromClauseAlias + "." + order.getProperty();
+						} else {
 							return order.getProperty();
 						}
-
-						return this.alias + "." + order.getProperty();
 					}, true));
 					if (order.isIgnoreCase()) {
 						NOSPACE(tokens);
@@ -182,13 +192,13 @@ class JpqlQueryTransformer extends JpqlQueryRenderer {
 
 					if (selectItemTokens.stream().anyMatch(jpqlToken -> jpqlToken.getToken().contains("new"))) {
 						// constructor
-						tokens.add(new JpaQueryParsingToken(() -> this.alias));
+						tokens.add(new JpaQueryParsingToken(() -> this.primaryFromClauseAlias));
 					} else {
 						// keep all the select items to distinct against
 						tokens.addAll(selectItemTokens);
 					}
 				} else {
-					tokens.add(new JpaQueryParsingToken(() -> this.alias));
+					tokens.add(new JpaQueryParsingToken(() -> this.primaryFromClauseAlias));
 				}
 			}
 
@@ -207,6 +217,18 @@ class JpqlQueryTransformer extends JpqlQueryRenderer {
 	}
 
 	@Override
+	public List<JpaQueryParsingToken> visitSelect_item(JpqlParser.Select_itemContext ctx) {
+
+		List<JpaQueryParsingToken> tokens = super.visitSelect_item(ctx);
+
+		if (ctx.result_variable() != null) {
+			projectionAliases.add(tokens.get(tokens.size() - 1).getToken());
+		}
+
+		return tokens;
+	}
+
+	@Override
 	public List<JpaQueryParsingToken> visitRange_variable_declaration(JpqlParser.Range_variable_declarationContext ctx) {
 
 		List<JpaQueryParsingToken> tokens = newArrayList();
@@ -219,8 +241,8 @@ class JpqlQueryTransformer extends JpqlQueryRenderer {
 
 		tokens.addAll(visit(ctx.identification_variable()));
 
-		if (this.alias == null) {
-			this.alias = tokens.get(tokens.size() - 1).getToken();
+		if (this.primaryFromClauseAlias == null) {
+			this.primaryFromClauseAlias = tokens.get(tokens.size() - 1).getToken();
 		}
 
 		return tokens;

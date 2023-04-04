@@ -34,7 +34,7 @@ import org.springframework.util.Assert;
  * @author Greg Turnquist
  * @since 3.1
  */
-class HqlQueryTransformer extends HqlQueryRenderer {
+class HqlQueryTransformer extends HqlQueryRenderer implements QueryTransformer {
 
 	// TODO: Separate input from result parameters, encapsulation...
 
@@ -85,6 +85,11 @@ class HqlQueryTransformer extends HqlQueryRenderer {
 
 	public boolean hasConstructorExpression() {
 		return this.hasConstructorExpression;
+	}
+
+	@Override
+	public Set<String> getProjectionAliases() {
+		return this.projectionAliases;
 	}
 
 	/**
@@ -168,33 +173,6 @@ class HqlQueryTransformer extends HqlQueryRenderer {
 		}
 
 		return tokens;
-	}
-
-	/**
-	 * Determine when an {@link org.springframework.data.domain.Sort.Order} parameter should alias (or not).
-	 *
-	 * @param order
-	 * @return boolean whether or not to apply the primary FROM clause's alias
-	 */
-	private boolean shouldAlias(Sort.Order order) {
-
-		if (orderParameterIsAFunction(order)) {
-			return false;
-		}
-
-		if (orderParameterReferencesAProjectionAlias(order)) {
-			return false;
-		}
-
-		return true;
-	}
-
-	private boolean orderParameterIsAFunction(Sort.Order order) {
-		return order.getProperty().contains("(");
-	}
-
-	private boolean orderParameterReferencesAProjectionAlias(Sort.Order order) {
-		return projectionAliases.contains(order.getProperty());
 	}
 
 	@Override
